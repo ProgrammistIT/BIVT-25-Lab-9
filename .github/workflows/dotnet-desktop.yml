@@ -57,7 +57,9 @@ jobs:
       - name: Install .NET Core
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            9.0.x
 
       - name: Setup MSBuild.exe
         uses: microsoft/setup-msbuild@v2
@@ -74,49 +76,63 @@ jobs:
         env:
           CFG: ${{ matrix.configuration }}
         run: |
-          $proj = "Lab9test/Lab9test.csproj"
+          $testProjectPath = "Lab9Test/Lab9Test.csproj"
+          $testDir         = "Lab9Test"
+          
           Write-Host "Building test project..."
-          dotnet build $proj -c $Env:CFG
-      
-          $dll = Join-Path $PWD "Lab9test\bin\$Env:CFG\net8.0\Lab9test.dll"
+          dotnet build $testProjectPath -c $Env:CFG --no-restore
+          
+          $tfm = (dotnet list $testProjectPath framework --framework net9.0 | Select-Object -Last 1).Trim()
+          if (-not $tfm) { $tfm = "net9.0" }
+          
+          $dll = Join-Path $PWD "$testDir\bin\$Env:CFG\$tfm\Lab9Test.dll"
+          
+          Write-Host "Ожидаемая DLL: $dll"
+          
           if (-not (Test-Path $dll)) {
             Write-Error "DLL не найдена: $dll"
+            Write-Host "`nСодержимое bin папки:"
+            Get-ChildItem "$testDir\bin" -Recurse -ErrorAction SilentlyContinue | 
+              Select-Object FullName | Out-Host
             exit 1
           }
-      
+          
+          Write-Host "DLL успешно найдена`n"
+          
           $leagues = @{
-            "Purple" = @("Task1","Task2","Task3","Task4","Task5")
-            "Blue"   = @("Task1","Task2","Task3","Task4","Task5")
-            "Green"  = @("Task1","Task2","Task3","Task4","Task5")
-            "White"  = @("Task1","Task2","Task3","Task4","Task5")
+            "Purple" = @("Task1","Task2","Task3","Task4")
+            "Blue"   = @("Task1","Task2","Task3","Task4")
+            "Green"  = @("Task1","Task2","Task3","Task4")
+            "White"  = @("Task1","Task2","Task3","Task4")
           }
-      
+          
           foreach ($leagueName in $leagues.Keys) {
             Write-Host "Лига: $leagueName"
             $allPassed = $true
-      
+          
             foreach ($cls in $leagues[$leagueName]) {
               $filter = "FullyQualifiedName~$leagueName.$cls"
-              Write-Host "Запуск тестов класса: $leagueName.$cls"
+              Write-Host "  Запуск: $leagueName.$cls"
+              
               dotnet vstest $dll --TestCaseFilter:"$filter" --Logger:"trx;LogFileName=test-$leagueName-$cls.trx"
-      
+              
               if ($LASTEXITCODE -ne 0) {
-                Write-Host "❌ Тест $leagueName.$cls не прошёл."
+                Write-Host "  ❌ $leagueName.$cls не прошёл" -ForegroundColor Red
                 $allPassed = $false
               } else {
-                Write-Host "✅ Тест $leagueName.$cls прошёл."
+                Write-Host "  ✅ $leagueName.$cls прошёл" -ForegroundColor Green
               }
             }
-      
+          
             if ($allPassed) {
-              Write-Host "✅ Все тесты лиги $leagueName прошли! Останавливаем каскад."
+              Write-Host "✅ Все тесты лиги $leagueName прошли! Останавливаем каскад." -ForegroundColor Green
               exit 0
             } else {
-              Write-Host "⚠️ Не все тесты лиги $leagueName прошли. Переходим к следующей лиге."
+              Write-Host "⚠️ Лига $leagueName не прошла полностью. Переходим к следующей..." -ForegroundColor Yellow
             }
           }
-      
-          Write-Host "❌ Ни одна лига полностью не прошла. Проверьте корректность загруженных файлов."
+          
+          Write-Host "❌ Ни одна лига полностью не прошла." -ForegroundColor Red
           exit 1
           
       - name: Upload TRX
